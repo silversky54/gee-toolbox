@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "gee-toolbox"
+version = "0.1.0"
+description = "Common functions and tasks for Google Earth Engine Assets"
+authors = ["Erick G <erick.linares@gmail.com>"]
+maintainers = ["Erick G <erick.linares@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+earthengine-api = "^0.1.418"
+geetools = "^1.4.0"
+
+
+[tool.poetry.group.dev.dependencies]
+jupyter = "^1.1.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
