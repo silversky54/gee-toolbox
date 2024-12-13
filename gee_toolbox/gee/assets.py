@@ -1,7 +1,12 @@
-import ee
+from ee.ee_exception import EEException
+from ee import data as ee_data
 from geetools.Asset import Asset
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict
+from tqdm.auto import tqdm
+
+
+ALLOWED_ASSET_TYPES = ["IMAGE", "TABLE", "FOLDER", "IMAGE_COLLECTION"]
 
 
 def _request_del_confirmation() -> bool:
@@ -39,9 +44,6 @@ def _make_del_warning(asset: str, objects_list: list) -> str:
     return warn_text
 
 
-ALLOWED_ASSET_TYPES = ["IMAGE", "TABLE", "FOLDER", "IMAGE_COLLECTION"]
-
-
 def _check_asset_types(asset_types: str | List[str]) -> List[str]:
     # verify allowed asset types
     if not asset_types:
@@ -60,11 +62,30 @@ def _check_asset_types(asset_types: str | List[str]) -> List[str]:
 
 
 def get_asset_names(asset_list: list) -> List:
-    return [asset["name"] for asset in asset_list]
+    """
+    Returns a list of asset names from the given asset list.
+
+    Parameters:
+    - asset_list (list): A list of assets dictionaries with keys "name" and "type".
+
+    Returns:
+    - List: A list of asset names.
+    """
+    return [asset["name"] for asset in asset_list if "name" in asset]
 
 
 def get_asset_types(asset_list: list) -> List:
-    return [asset["type"] for asset in asset_list]
+    """
+    Returns a list of asset types from the given asset list.
+
+    Parameters:
+    - asset_list (list): A list of assets dictionaries with keys "name" and "type".
+
+    Returns:
+    - List: A list of asset types.
+    """
+
+    return [asset["type"] for asset in asset_list if "type" in asset]
 
 
 # Creating alternative function to list assets to include filtering by asset type and inclusion/exclusion of parent folder
@@ -100,7 +121,7 @@ def list_assets(
         parent_type = _parent.type
         if parent_type not in ["FOLDER", "IMAGE_COLLECTION"]:
             raise ValueError("Path provided is not a Folder or Image Collection")
-    except (ValueError, ee.EEException) as e:
+    except (ValueError, EEException) as e:
         logging.error(e)
         raise e
 
@@ -109,11 +130,7 @@ def list_assets(
         expand_image_collections = True
 
     # List assets in the parent folder
-    try:
-        child_assets = ee.data.listAssets({"parent": _parent.as_posix()})["assets"]
-    except ee.EEException as e:
-        logging.warning(e)
-        raise e
+    child_assets = ee_data.listAssets({"parent": _parent.as_posix()})["assets"]
 
     asset_list = []
 
@@ -212,10 +229,15 @@ def prune(
     results = {"deleted": [], "failed": [], "skipped": []}
 
     _asset.exists(raised=True)
+    _asset_type = _asset.type
+
     asset_types = _check_asset_types(asset_types)
 
+    print(_asset.as_posix())
+    print(_asset_type)
+
     # if asset_types includes FOLDER, asset_types should also include all other asset types or raise error
-    if any([asset_type == "FOLDER" for asset_type in asset_types]):
+    if _asset_type == "FOLDER" and "FOLDER" in asset_types:
         if not all(
             [allowed_type in asset_types for allowed_type in ALLOWED_ASSET_TYPES]
         ):
@@ -229,15 +251,19 @@ def prune(
     # IF deleting folders, recursive and expand_image_collections need to be True
     if (
         "FOLDER" in asset_types
-        and not _asset.is_image_collection()
+        and _asset_type == "FOLDER"
         and (not recursive or not expand_image_collections)
     ):
         raise ValueError(
-            "Deleting a folder requires recursive=True and expand_image_collections=True"
+            "Deleting folders requires recursive=True and expand_image_collections=True"
         )
 
     # If Deleting image collections, expand_image_collections needs to be True
-    if "IMAGE_COLLECTION" in asset_types and not expand_image_collections:
+    if (
+        _asset_type in ["FOLDER", "IMAGE_COLLECTION"]
+        and "IMAGE_COLLECTION" in asset_types
+        and not expand_image_collections
+    ):
         raise ValueError(
             "Deleting an image collection requires expand_image_collections=True"
         )
@@ -249,9 +275,7 @@ def prune(
         image_collections_exclusively = True
         asset_types.append("IMAGE")
 
-    is_container = (
-        _asset.is_project() or _asset.is_folder() or _asset.is_image_collection()
-    )
+    is_container = _asset_type in ["FOLDER", "IMAGE_COLLECTION"] or _asset.is_project()
 
     # list objects (images, tables, folders, imageCollections, etc) in folder and sub folders
     if is_container:
@@ -264,19 +288,19 @@ def prune(
             image_collections_exclusively=image_collections_exclusively,
         )
 
-        # Split and sort per level of hierarchy. Recursive deleting will fail If not deleted in reverse order
-        assets_ordered: dict = {}
-        for _target_asset in asset_list:
-            _target_asset = Asset(_target_asset["name"])
-            lvl = len(_target_asset.parts)
-            assets_ordered.setdefault(lvl, [])
-            assets_ordered[lvl].append(_target_asset)
-        assets_ordered = dict(sorted(assets_ordered.items(), reverse=True))
-
     else:
         asset_list = [{"name": _asset.as_posix(), "type": _asset.type}]
 
-    print(_make_del_warning(_asset.as_posix(), get_asset_types(asset_list)))
+    print(_make_del_warning(_asset.as_posix(), get_asset_types(asset_list)), flush=True)
+
+    # Split and sort per level of hierarchy. Recursive deleting will fail If not deleted in reverse order
+    assets_ordered: dict = {}
+    for _target_asset in asset_list:
+        _target_asset = Asset(_target_asset["name"])
+        lvl = len(_target_asset.parts)
+        assets_ordered.setdefault(lvl, [])
+        assets_ordered[lvl].append(_target_asset)
+    assets_ordered = dict(sorted(assets_ordered.items(), reverse=True))
 
     # End if Dry Run
     if dry_run:
@@ -296,7 +320,7 @@ def prune(
 
         def _delete(asset: Asset) -> None:
             try:
-                ee.data.deleteAsset(str(asset))
+                ee_data.deleteAsset(str(asset))
                 results["deleted"].append(str(asset))
             except Exception as e:
                 results["failed"].append(str(asset))
@@ -304,8 +328,10 @@ def prune(
         print(f"Deleting {len(asset_list)} items from {_asset.as_posix()}")
 
         # delete all items starting from the more nested ones
+        delete_order = []
         for lvl in assets_ordered:
-            [_delete(asset) for asset in assets_ordered[lvl]]
+            delete_order.extend(assets_ordered[lvl])
+        [_delete(asset) for asset in tqdm(delete_order)]
 
         print(
             f"Deleted {len(results['deleted'])} items, {len(results['failed'])} items failed to delete"
