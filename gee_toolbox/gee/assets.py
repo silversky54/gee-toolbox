@@ -1,6 +1,6 @@
 from ee.ee_exception import EEException
 from ee import data as ee_data
-from geetools.Asset import Asset
+from geetools.ee_asset import Asset
 import logging
 from typing import List, Dict
 from tqdm.auto import tqdm
