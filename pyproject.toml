@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gee-toolbox"
-version = "0.2.0"
+version = "0.2.1"
 description = "Common functions and tasks for Google Earth Engine Assets"
 license = "Apache-2.0"
 authors = ["Erick G <erick.linares@gmail.com>"]
