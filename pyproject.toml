@@ -55,13 +55,9 @@ mode = "update"
 [tool.semantic_release.changelog.default_templates]
 mask_initial_release = true
 
-
 [tool.semantic_release.commit_author]
 env = "GIT_AUTHOR_NAME"
 default = "Erick <erick.linares@gmail.com>"
-
-[tool.semantic_release.commit_parser_options]
-patch_types = ["fix", "perf"]
 
 [tool.semantic_release.remote]
 type = "github"
