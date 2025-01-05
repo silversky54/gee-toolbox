@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gee-toolbox"
-version = "0.2.1"
+version = "0.2.0"
 description = "Common functions and tasks for Google Earth Engine Assets"
 license = "Apache-2.0"
 authors = ["Erick G <erick.linares@gmail.com>"]
@@ -26,6 +26,7 @@ tqdm = "^4.66.5"
 
 [tool.poetry.group.dev.dependencies]
 jupyter = "^1.1.1"
+python-semantic-release = "^9.15.2"
 
 
 [tool.poetry.group.test.dependencies]
@@ -36,3 +37,34 @@ pytest-cov = "^5.0.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:tool.poetry.version"] # version location
+major_on_zero = false
+tag_format = "v{version}"
+
+[tool.semantic_release.branches.main]
+match = "(main|master)"
+prerelease_token = "rc"
+prerelease = false
+
+[tool.semantic_release.changelog]
+mode = "update"
+
+
+[tool.semantic_release.changelog.default_templates]
+mask_initial_release = true
+
+
+[tool.semantic_release.commit_author]
+env = "GIT_AUTHOR_NAME"
+default = "Erick <erick.linares@gmail.com>"
+
+[tool.semantic_release.commit_parser_options]
+patch_types = ["fix", "perf"]
+
+[tool.semantic_release.remote]
+type = "github"
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false
