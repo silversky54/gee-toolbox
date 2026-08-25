@@ -163,7 +163,9 @@ cython_debug/
 
 # ----------------------------
 
-notebooks/functions/
+**/notebooks/
+notebooks/
 .vscode/
 poetry.lock
 **/poetry.lock
+.cursor/

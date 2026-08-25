@@ -17,7 +17,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-dependencies = ["earthengine-api>=0.1.418,<2.0.0", "tqdm>=4.66.5,<5.0.0"]
+dependencies = [
+    "earthengine-api>=0.1.418,<2.0.0",
+    "tqdm>=4.66.5,<5.0.0",
+    "prettytable>=3.10.1,<4.0.0",
+    "pytz>=2026.3.post1",
+]
 
 [project.urls]
 Repository = "https://github.com/silversky54/gee-toolbox"
@@ -43,6 +48,41 @@ packages = ["src/gee_toolbox"]
 
 [tool.uv]
 default-groups = ["dev", "test"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = [".venv", "**/.venv", "dist", "build", "**/migrations"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors (PEP 8)
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes (logical errors, unused variables)
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade (modernizes Python 3.13 syntax)
+    "B",   # flake8-bugbear (common design flaws and bugs)
+    "SIM", # flake8-simplify (helps write clean, readable code)
+    "RUF", # Ruff-specific rules
+    "N",   # pep8-naming (enforces standard naming conventions)
+    "YTT", # flake8-2020 (prevents system version compatibility errors)
+    "D",   # pydocstyle (enforces docstring conventions)
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",
+    "N802",
+] # skip all docstring rules, and allow non-snake_case test names if needed
+"notebooks/**" = ["D", "E501"]
+"**/__init__.py" = ["D"]
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
 
 [tool.semantic_release]
 commit_parser = "conventional-monorepo"
