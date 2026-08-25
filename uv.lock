@@ -688,6 +688,8 @@ version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "earthengine-api" },
+    { name = "prettytable" },
+    { name = "pytz" },
     { name = "tqdm" },
 ]
 
@@ -706,6 +708,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "earthengine-api", specifier = ">=0.1.418,<2.0.0" },
+    { name = "prettytable", specifier = ">=3.10.1,<4.0.0" },
+    { name = "pytz", specifier = ">=2026.3.post1" },
     { name = "tqdm", specifier = ">=4.66.5,<5.0.0" },
 ]
 
@@ -1600,6 +1604,18 @@ wheels = [
 ]
 
 [[package]]
+name = "prettytable"
+version = "3.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/74/ba08d81e668ccfe8658d7520a307e63c19862c08eb4ccb26f356c5239a7a/prettytable-3.18.0.tar.gz", hash = "sha256:439217116152244369caf3d9f1caf2f9fe29b03bd79e88d2928c8e718c95d680", size = 76373, upload-time = "2026-06-22T16:07:50.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/be/2e6798ace5cc036f5d05d36b7b2fd85346f1a708c87060890b070d0ec607/prettytable-3.18.0-py3-none-any.whl", hash = "sha256:b3346e0e6f79180833aebaac088ae926340586cf6d7d991b9eb125b65f72313a", size = 37357, upload-time = "2026-06-22T16:07:48.595Z" },
+]
+
+[[package]]
 name = "prometheus-client"
 version = "0.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1928,6 +1944,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1d/2b/8395fa3b7bd31fd4d0a4181ad660b2f8ee14961334945d3bfc6e73dec21a/python_semantic_release-9.21.2.tar.gz", hash = "sha256:84d4f90f77528bcc0cbdcf3bc262172e3a4eeb7670b82fa45b4c859455e9cdf2", size = 308976, upload-time = "2026-07-04T01:11:42.085Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/42/95/9059bf101c4147dd18c65f9323b57c2a3e1e152ff12a6a316ab7562d79bb/python_semantic_release-9.21.2-py3-none-any.whl", hash = "sha256:856b13c025aadf52180d5704477c2e3582fc0d5f6b2746641d3006b9eed4a0b4", size = 132839, upload-time = "2026-07-04T01:11:40.502Z" },
+]
+
+[[package]]
+name = "pytz"
+version = "2026.3.post1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/48/fb042503b6ca6cd271261dc559fd6432f7d8c713153e9ec5c591af4dfc1c/pytz-2026.3.post1.tar.gz", hash = "sha256:2211d3fcf9a797d3405cac96ac7f61d80e6a644f72a3309607282fe8a2010c5d", size = 319745, upload-time = "2026-07-25T15:12:07.385Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0f/7b/39c34ca613b0b198cb866466651b26b045e2009864c5183c979a3b83f383/pytz-2026.3.post1-py2.py3-none-any.whl", hash = "sha256:dd95840dd199baea12d9cc096a1d452caa6596a1c1e4b5f3dbd1541855d5e815", size = 508283, upload-time = "2026-07-25T15:12:05.782Z" },
 ]
 
 [[package]]
