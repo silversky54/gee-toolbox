@@ -1,3 +1,5 @@
+"""Helper classes and functions for managing Google Earth Engine (GEE) export tasks."""
+
 from __future__ import annotations
 
 import copy
@@ -100,6 +102,7 @@ class ExportTask:
         task_status (str): GEE task state from the last query.
         status (str): High-level export status. Superset of task_status.
         error (str | None): Error message if the task fails.
+
     """
 
     name: str
@@ -149,6 +152,7 @@ class ExportTask:
         Raises:
             ValueError: If type or target is invalid, task_id does not match
                 the task, or status cannot be resolved from the task.
+
         """
         self.id = id or task_id or str(uuid.uuid4())  # TODO make inmutable after init
         if type not in ["image", "table"]:
@@ -180,7 +184,7 @@ class ExportTask:
                     f"Can't set task_id to 'None', while task has id: '{id_from_task}'"
                 )
         else:
-            # task_id must match the task.id unless task is None hasn't been submitted yet
+            # task_id must match the task.id unless task is None or has no id yet
             if id_from_task is None or id_from_task == task_id:
                 self._task_id = task_id
             else:
@@ -270,6 +274,7 @@ class ExportTask:
 
         Returns:
             str: The current GEE task_status after attempting to start.
+
         """
         if self.task is None:
             logger.warning(
@@ -294,24 +299,26 @@ class ExportTask:
         return self.task_status
 
     def query_status(self) -> str:
-        """Query the status of the EE task if task or task_id is set, otherwise return the current status.
+        """Query status of the EE task, otherwise return the current status.
 
-        Tries task.status() first, then falls back to task_id via ee.data.getTaskStatus.
-        Repeated failures are counted; after MAX_STATUS_UPDATE_FAILURES the
-        task_status is set to FAILED_TO_GET_STATUS.
+        Queries status if task or task_id is set. Tries with task.status() first, then
+        falls back to task_id via ee.data.getTaskStatus.
+        Repeated failures are counted; after MAX_STATUS_UPDATE_FAILURES the task_status
+        is set to FAILED_TO_GET_STATUS.
 
         Returns:
             str: The current GEE task_status.
 
         Raises:
             RuntimeError: If the EE task status cannot be determined.
-        """
 
+        """
         # Skip if no task to track and no task_id
         if self.task is None and self.task_id is None:
             logger.warning(
-                f"Task {self.name} ({self.id}) to {self.target} has no task or task_id. "
-                f"Preserving task_status: {self._task_status} but no status update was performed."
+                f"Task {self.name} ({self.id}) to {self.target} has no task or "
+                f"task_id. Preserving task_status: {self._task_status} but no "
+                "status update was performed."
             )
             return self.task_status
 
@@ -386,18 +393,21 @@ class ExportTask:
         return self.task_status
 
     def cancel_task(self) -> str:
-        """Request to cancel the EE export task if task or task_id is set, otherwise return the current status.
+        """Request to cancel the EE export, otherwise return the current status.
 
+        Attempts cancellation if task or task_id is set.
         Only attempts cancellation when status is NOT_STARTED or PENDING.
         Tries task.cancel() first, then falls back to task_id via ee.data.cancelTask.
 
         Returns:
             str: The current GEE task_status after attempting to cancel.
+
         """
         if self.task is None and self.task_id is None:
             logger.warning(
-                f"Task {self.name} ({self.id}) to {self.target} has no task or task_id. "
-                f"Preserving task_status: {self._task_status} but no cancellation was performed."
+                f"Task {self.name} ({self.id}) to {self.target} has no task or "
+                f"task_id. Preserving task_status: {self._task_status} but no "
+                f"cancellation was performed."
             )
             return self.task_status
 
@@ -447,12 +457,21 @@ class ExportTask:
         return self.task_status
 
     def __repr__(self) -> str:
-        return f"ExportTask(type={self.type}, name={self.name}, target={self.target}, status={self.status}, task_status={self.task_status})"
+        """Return a string representation of the ExportTask."""
+        return (
+            f"ExportTask(type={self.type}, name={self.name}, target={self.target}, "
+            f"status={self.status}, task_status={self.task_status})"
+        )
 
     def __str__(self) -> str:
-        return f"(type={self.type}, name={self.name}, target={self.target}, status={self.status}, task_status={self.task_status})"
+        """Return a string representation of the ExportTask."""
+        return (
+            f"(type={self.type}, name={self.name}, target={self.target}, "
+            f"status={self.status}, task_status={self.task_status})"
+        )
 
     def __eq__(self, other: object) -> bool:
+        """Return True if the ExportTask is equal to another ExportTask."""
         if not isinstance(other, ExportTask):
             return NotImplemented
 
@@ -467,7 +486,7 @@ class ExportTask:
         )
 
     def __hash__(self) -> int:
-        # Optional: implement if you want ExportTask to be usable in sets or as dict keys
+        """Return a hash of the ExportTask."""
         return hash(
             (
                 self.type,
@@ -514,6 +533,7 @@ class ExportTask:
 
         Returns:
             dict: JSON-safe dict of ExportTask.
+
         """
         return export_task_to_dict(self)
 
@@ -524,6 +544,7 @@ class ExportTask:
 
         Args:
             file_path: Path to the file to save the ExportTask to.
+
         """
         with open(file_path, "w") as f:
             json.dump(self.to_dict(), f)
@@ -542,6 +563,7 @@ class ExportTaskList:
 
     Attributes:
         tasks (list[ExportTask]): The list of ExportTask instances.
+
     """
 
     def __init__(self, tasks: list[ExportTask] | ExportTask | None = None) -> None:
@@ -549,6 +571,7 @@ class ExportTaskList:
 
         Args:
             tasks: A single ExportTask, a list of ExportTask, or None for an empty list.
+
         """
         self._tasks: list[ExportTask] = []
         if tasks is None:
@@ -607,6 +630,7 @@ class ExportTaskList:
 
         Returns:
             int: The number of tasks matching the filters.
+
         """
         # Normalize target to the internal format
         target = EXPORT_TARGET_MAP[target] if target else None
@@ -614,7 +638,6 @@ class ExportTaskList:
         filters = {
             attr: value
             for attr, value in {
-                "id": id,
                 "name": name,
                 "type": type,
                 "target": target,
@@ -654,6 +677,7 @@ class ExportTaskList:
             name: Filter the tasks by name.
             type: Filter the tasks by type.
             target: Filter the tasks by target.
+
         """
         # Normalize target to the internal format
         target = EXPORT_TARGET_MAP[target] if target else None
@@ -706,6 +730,7 @@ class ExportTaskList:
             error: The error message if the export task failed.
             id: Unique identifier for the export task, generated if not provided
                 (e.g. uuid4).
+
         """
         self._tasks.append(
             ExportTask(
@@ -732,8 +757,10 @@ class ExportTaskList:
             target: Filter the tasks by target. If None, all tasks are included.
             extended: If True, includes task_status in the summary.
 
-        returns:
-            dict: Count of tasks per status. If extended is True, the key is a tuple of (status, task_status).
+        Returns:
+            dict: Count of tasks per status. If extended is True, the key is a tuple of
+                (status, task_status).
+
         """
         target = target.lower() if target else None
         if target is None:
@@ -774,8 +801,8 @@ class ExportTaskList:
 
         Returns:
             str: A string representation of the pretty table.
-        """
 
+        """
         status_dict = self.summary(target=target, extended=extended)
 
         if not list(status_dict.keys()):
@@ -808,6 +835,7 @@ class ExportTaskList:
 
         Returns:
             dict: Count of tasks per status after attempting to start.
+
         """
         logger.info("Starting export tasks...")
 
@@ -841,15 +869,15 @@ class ExportTaskList:
 
         Returns:
             dict: Count of tasks per status.
-        """
 
+        """
         logger.debug("Querying status of export tasks...")
 
         failed = 0
         for task in self._tasks:
             try:
                 task.query_status()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 failed += 1
                 logger.warning(
                     "Failed to query status of %s (ID: %s) to %s: %s",
@@ -874,8 +902,8 @@ class ExportTaskList:
 
         Returns:
             dict: Count of tasks per status when tracking finishes.
-        """
 
+        """
         logger.info("Tracking status of export tasks...")
 
         finished_tasks = []
@@ -912,7 +940,8 @@ class ExportTaskList:
 
                     elif status in GEE_TASK_TERMINAL_STATES:
                         logger.debug(
-                            "Export task %s (ID: %s) to %s finished with status: %s (Task Status: %s)",
+                            "Export task %s (ID: %s) to %s finished with status: %s "
+                            "(Task Status: %s)",
                             task.name,
                             task.id,
                             task.target,
@@ -922,7 +951,8 @@ class ExportTaskList:
                         finished_tasks.append(task.id)
                     else:
                         logger.warning(
-                            "Export task %s (ID: %s) to %s finished with unknown status: %s (Task Status: %s)",
+                            "Export task %s (ID: %s) to %s finished with unknown status"
+                            ": %s (Task Status: %s)",
                             task.name,
                             task.id,
                             task.target,
@@ -937,31 +967,39 @@ class ExportTaskList:
         return self.summary()
 
     def __str__(self) -> str:
+        """Return a string representation of the ExportTaskList."""
         summary = "\n".join([str(task) for task in self._tasks])
         return f"{summary}"
 
     def __repr__(self) -> str:
+        """Return a string representation of the ExportTaskList."""
         return f"ExportTaskList(Total ExportTasks: {len(self._tasks)})"
 
     def __getitem__(self, index: int) -> ExportTask:
+        """Return the ExportTask at the given index."""
         return self._tasks[index]
 
     def __setitem__(self, index: int, value: ExportTask) -> None:
+        """Set the ExportTask at the given index."""
         if not isinstance(value, ExportTask):
             raise TypeError(f"Invalid type for task: {type(value)}")
         # Same ownership rule as append: independent ExportTask, shared EE Task
         self._tasks[index] = copy.deepcopy(value)
 
     def __delitem__(self, index) -> None:
+        """Delete the ExportTask at the given index."""
         del self._tasks[index]
 
     def __len__(self) -> int:
+        """Return the number of ExportTasks in the list."""
         return len(self._tasks)
 
     def __iter__(self) -> Iterator[ExportTask]:
+        """Return an iterator over the ExportTasks in the list."""
         return iter(self._tasks)
 
     def __add__(self, other: ExportTaskList) -> ExportTaskList:
+        """Return a new ExportTaskList with the combined ExportTasks."""
         if not isinstance(other, ExportTaskList):
             return NotImplemented
         return ExportTaskList(self._tasks + other._tasks)
@@ -977,6 +1015,7 @@ def export_task_to_dict(export_task: ExportTask) -> dict:
 
     Returns:
         dict: JSON-safe dict of ExportTask.
+
     """
     return {
         "id": export_task.id,
@@ -1012,7 +1051,7 @@ def save_export_task_list(task_list: ExportTaskList, file_path: str) -> None:
 # def _rehydrate_task(
 #     task_id: str, gee_task_list: list[ee.batch.Task] | None = None
 # ) -> ee.batch.Task | None:
-#     """Rebuild ee.batch.Task from saved metadata; returns None if insufficient data."""
+#     """Rebuild Task from saved metadata; returns None if insufficient data."""
 
 #     if gee_task_list is None:
 #         try:
@@ -1031,7 +1070,6 @@ def save_export_task_list(task_list: ExportTaskList, file_path: str) -> None:
 
 def dict_to_export_task(d: dict) -> ExportTask:
     """Rebuild an ExportTask from dict; task rehydrated if metadata present."""
-
     gee_task: ee.batch.Task | dict | None = d.get("task")
     if gee_task is not None and not isinstance(gee_task, ee.batch.Task):
         gee_task = None
