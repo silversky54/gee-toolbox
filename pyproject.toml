@@ -30,8 +30,12 @@ Repository = "https://github.com/silversky54/gee-toolbox"
 [dependency-groups]
 dev = [
     "jupyter>=1.1.1,<2.0.0",
-    "python-semantic-release>=9.15.2,<10.0.0",
+    "python-semantic-release>=10.5.3,<11",
     "ruff>=0.15.15,<1.0.0",
+    "sphinx>=9.0,<10.0",
+    "sphinx-autoapi>=3.6,<4",
+    "sphinx-design>=0.7.0,<0.8.0",
+    "furo>=2025.12.19",
 ]
 test = [
     "pytest>=8.3.2,<9.0.0",
@@ -87,6 +91,7 @@ indent-style = "space"
 [tool.semantic_release]
 commit_parser = "conventional-monorepo"
 version_toml = ["pyproject.toml:project.version"]
+allow_zero_version = true
 major_on_zero = false
 tag_format = "v{version}"
 
