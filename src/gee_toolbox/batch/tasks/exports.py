@@ -856,6 +856,19 @@ class ExportTaskList:
 
         return self.summary()
 
+    def start_tasks(self) -> dict[str, int]:
+        """Start all export tasks.
+
+        Skips ExportTasks that have already started, don't have a task, or
+        are in any terminal state (e.g. CANCELLED, FAILED, COMPLETED).
+        Alias for 'start_exports' method for naming clarity.
+
+        Returns:
+            dict: Count of tasks per status after attempting to start.
+
+        """
+        return self.start_exports()
+
     def query_status(self) -> dict[str, int]:
         """Query status of all export tasks.
 
