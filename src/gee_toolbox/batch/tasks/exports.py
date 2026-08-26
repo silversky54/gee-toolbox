@@ -7,6 +7,7 @@ import json
 import logging
 import uuid
 from collections.abc import Iterator
+from enum import Enum
 from pathlib import Path
 from time import sleep
 from typing import Literal
@@ -40,16 +41,11 @@ EXPORT_TARGETS = list[str](EXPORT_TARGET_MAP.keys())
 
 # Maps high-level export status -> GEE task states (task_status).
 # status is the export-level grouping; task_status is the GEE task state.
-# GEE_TASK_LIFECYCLE_STATUS = [
-#     "UNSUBMITTED",
-#     "READY",
-#     "RUNNING",
-#     "COMPLETED",
-#     "FAILED",
-#     "CANCEL_REQUESTED",
-#     "CANCELED",
-#     "UNKNOWN",
-# ]
+# GEE Task.State values (ee.batch.Task.State):
+#   UNSUBMITTED, READY, RUNNING, COMPLETED, FAILED,
+#   CANCEL_REQUESTED, CANCELLED
+# Local synthetic states: NO_TASK, EXCLUDED, PLANNED, CREATED, SUBMITTED,
+#   FAILED_TO_GET_STATUS
 EXPORT_TASK_STATUS_MAP = {
     "NO_TASK": ["NO_TASK"],
     "EXCLUDED": ["EXCLUDED"],
@@ -81,8 +77,21 @@ MAX_STATUS_UPDATE_FAILURES = 3
 """Consecutive status-query failures allowed before marking a task failed."""
 
 
-def _validate_task_status(value: str) -> str:
-    value = str(value).upper()
+def _normalize_task_status(value: Enum | str) -> str:
+    """Normalize a GEE task state to an uppercase string.
+
+    'ee.batch.Task.State' is a string Enum. 'str(State.UNSUBMITTED)' yields
+    'State.UNSUBMITTED' (Python 3.11+), so callers must use ``.value``
+    rather than ``str(...)``. Plain API strings (e.g. from ``getTaskStatus``)
+    pass through unchanged.
+    """
+    if isinstance(value, Enum):
+        value = value.value
+    return str(value).upper()
+
+
+def _validate_task_status(value: Enum | str) -> str:
+    value = _normalize_task_status(value)
     for statuses in EXPORT_TASK_STATUS_MAP.values():
         if value in statuses:
             return value
@@ -193,7 +202,7 @@ class ExportTask:
             if self.task is None:
                 self._task_status = "NO_TASK"
             elif status_from_task is not None:
-                self._task_status = status_from_task
+                self._task_status = _normalize_task_status(status_from_task)
             else:
                 # Shouldn't happen, task should have at least UNSUBMITTED
                 # Don't attempt to query status at init
@@ -236,7 +245,7 @@ class ExportTask:
         self._task = value
         self._task_id = getattr(value, "id", None)  # None if UNSUBMITTED
         # value.state may be an ee.batch.Task.State enum; normalize via _update_status
-        self._update_status(str(value.state))
+        self._update_status(value.state)
         return
 
     @property
@@ -249,8 +258,8 @@ class ExportTask:
         """GEE task state from the last query."""
         return self._task_status
 
-    def _update_status(self, value: str) -> None:
-        value = str(value).upper()
+    def _update_status(self, value: str | Enum) -> None:
+        value = _normalize_task_status(value)
         for key, statuses in EXPORT_TASK_STATUS_MAP.items():
             if value in statuses:
                 self._task_status = value
@@ -270,6 +279,10 @@ class ExportTask:
         Only starts when status is NOT_STARTED. If there is no ee.batch.Task,
         logs a warning and returns the current task_status.
 
+        After a successful ``task.start()``, status is set to SUBMITTED.
+        Earth Engine does not update ``task.state`` on start (it only assigns
+        ``task.id``), so we cannot read READY/RUNNING from the handle yet.
+
         Returns:
             str: The current GEE task_status after attempting to start.
 
@@ -282,11 +295,10 @@ class ExportTask:
 
         try:
             if self.status == "NOT_STARTED":
-                # TODO: verify if .start() updates task.state
                 self.task.start()
                 self._task_id = self.task.id
-                self._update_status(self.task.state)
-                # self._update_status("SUBMITTED")
+                # EE leaves task.state as UNSUBMITTED; mark locally as submitted.
+                self._update_status("SUBMITTED")
         except EEException as e:
             self._update_status("FAILED")
             self.error = str(e)

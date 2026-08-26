@@ -61,6 +61,14 @@ class TestValidateTaskStatus:
         assert exports._validate_task_status("ready") == "READY"
         assert exports._validate_task_status("COMPLETED") == "COMPLETED"
 
+    def test_accepts_ee_task_state_enum(self):
+        from ee.batch import Task
+
+        assert exports._normalize_task_status(Task.State.UNSUBMITTED) == "UNSUBMITTED"
+        assert exports._validate_task_status(Task.State.READY) == "READY"
+        # Regression: str(State.X).upper() is "STATE.X", which must not be used
+        assert str(Task.State.UNSUBMITTED).upper() == "STATE.UNSUBMITTED"
+
     def test_rejects_unknown_status(self):
         with pytest.raises(ValueError, match="Invalid task status"):
             exports._validate_task_status("not_a_real_status")
@@ -122,6 +130,14 @@ class TestExportTaskInit:
         assert task.task_status == "RUNNING"
         assert task.status == "PENDING"
 
+    def test_accepts_ee_task_state_enum_on_init(self, mocker):
+        from ee.batch import Task
+
+        ee_task = _make_ee_task(mocker, task_id=None, state=Task.State.UNSUBMITTED)
+        task = _make_export_task(task=ee_task)
+        assert task.task_status == "UNSUBMITTED"
+        assert task.status == "NOT_STARTED"
+
     def test_explicit_task_status_overrides_task_state(self, mocker):
         ee_task = _make_ee_task(mocker, task_id="t1", state="RUNNING")
         task = _make_export_task(task=ee_task, task_id="t1", task_status="READY")
@@ -163,10 +179,27 @@ class TestExportTaskSetter:
         assert task.task_status == "COMPLETED"
         assert task.status == "COMPLETED"
 
+    def test_assigning_task_with_ee_state_enum(self, mocker):
+        from ee.batch import Task
+
+        task = _make_export_task()
+        ee_task = _make_ee_task(
+            mocker, task_id="enum-id", state=Task.State.CANCELLED
+        )
+        task.task = ee_task
+        assert task.task_status == "CANCELLED"
+        assert task.status == "COMPLETED"
+
     def test_update_status_rejects_unknown(self):
         task = _make_export_task()
         with pytest.raises(ValueError, match="Unknown export status"):
             task._update_status("not-real")
+
+    def test_update_status_rejects_str_enum_repr(self):
+        # Guard against the pre-fix bug path (str(State).upper() == "STATE.X")
+        task = _make_export_task()
+        with pytest.raises(ValueError, match="Unknown export status: STATE.UNSUBMITTED"):
+            task._update_status("STATE.UNSUBMITTED")
 
 
 class TestExportTaskStartTask:
@@ -180,15 +213,30 @@ class TestExportTaskStartTask:
         ee_task = _make_ee_task(mocker, task_id=None, state="UNSUBMITTED")
 
         def _start():
+            # Mirror real EE: start() assigns id but leaves state UNSUBMITTED
             ee_task.id = "started-1"
-            ee_task.state = "READY"
 
         ee_task.start.side_effect = _start
         task = _make_export_task(task=ee_task, task_status="UNSUBMITTED")
-        assert task.start_task() == "READY"
+        assert task.start_task() == "SUBMITTED"
         assert task.task_id == "started-1"
         assert task.status == "PENDING"
         ee_task.start.assert_called_once()
+
+    def test_starts_with_ee_state_enum(self, mocker):
+        from ee.batch import Task
+
+        ee_task = _make_ee_task(mocker, task_id=None, state=Task.State.UNSUBMITTED)
+
+        def _start():
+            ee_task.id = "started-enum-1"
+
+        ee_task.start.side_effect = _start
+        task = _make_export_task(task=ee_task)
+        assert task.task_status == "UNSUBMITTED"
+        assert task.status == "NOT_STARTED"
+        assert task.start_task() == "SUBMITTED"
+        assert task.status == "PENDING"
 
     def test_skips_start_when_already_pending(self, mocker):
         ee_task = _make_ee_task(mocker, task_id="t1", state="READY")
@@ -221,6 +269,19 @@ class TestExportTaskQueryStatus:
     def test_updates_from_task_status(self, mocker):
         ee_task = _make_ee_task(mocker, task_id="t1", state="READY")
         ee_task.status.return_value = {"state": "RUNNING", "error_message": None}
+        task = _make_export_task(task=ee_task, task_id="t1", task_status="READY")
+        assert task.query_status() == "RUNNING"
+        assert task.status == "PENDING"
+
+    def test_updates_from_ee_state_enum_in_status_dict(self, mocker):
+        from ee.batch import Task
+
+        ee_task = _make_ee_task(mocker, task_id="t1", state="READY")
+        # Task.status() returns Task.State enum for unsubmitted / some paths
+        ee_task.status.return_value = {
+            "state": Task.State.RUNNING,
+            "error_message": None,
+        }
         task = _make_export_task(task=ee_task, task_id="t1", task_status="READY")
         assert task.query_status() == "RUNNING"
         assert task.status == "PENDING"
@@ -540,8 +601,8 @@ class TestExportTaskListStartExports:
         ee_ready = _make_ee_task(mocker, task_id=None, state="UNSUBMITTED")
 
         def _start():
+            # Mirror real EE: id assigned, state left UNSUBMITTED
             ee_ready.id = "started"
-            ee_ready.state = "READY"
 
         ee_ready.start.side_effect = _start
         startable = _make_export_task(id="1", task=ee_ready, task_status="UNSUBMITTED")
@@ -552,7 +613,8 @@ class TestExportTaskListStartExports:
         summary = task_list.start_exports()
         assert summary["PENDING"] >= 1
         ee_ready.start.assert_called_once()
-        assert task_list[0].task_status == "READY"
+        assert task_list[0].task_status == "SUBMITTED"
+        assert task_list[0].status == "PENDING"
 
 
 class TestExportTaskListQueryStatus:
