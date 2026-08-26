@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-08-26)
+
+### Bug Fixes
+
+- Fix reading state into ExportTask from a GEE Task. GEE Tasks use Enum.
+  ([`2079a59`](https://github.com/silversky54/gee-toolbox/commit/2079a59c657fc7cbd82f38ce1aefe0677ba8d26d))
+
+### Features
+
+- Add method ExportTaskList.start_tasks as alias for start_exports for naming clarity.
+  ([`bcd757a`](https://github.com/silversky54/gee-toolbox/commit/bcd757a845920a669cd1716f5b26566c132bea8e))
+
+
 ## v0.3.0 (2026-08-26)
 
 ### Features
