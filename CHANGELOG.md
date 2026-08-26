@@ -1,11 +1,27 @@
 # CHANGELOG
 
-## v0.2.0
-
-Minimum version of geetools is now 1.10.0
-Several improvements to list_assets and prune functions
-
 <!-- version list -->
+
+## v0.3.0 (2026-08-26)
+
+### Features
+
+- Add Classes and functions to manage EE Tasks. gee-toolbox.batch.tasks.exports
+  ([`3ea1907`](https://github.com/silversky54/gee-toolbox/commit/3ea190766c539688c50d20e2faf9ecd044b0ffab))
+
+- Add module "dates" with functions to manage dates within GEE or to convert between GEE and local
+  python.
+  ([`396930c`](https://github.com/silversky54/gee-toolbox/commit/396930ccb72e1519c225ee3b4e8ed44496abf4be))
+
+- Add new module "images" with functions to add properties to Images
+  ([`f81a4b5`](https://github.com/silversky54/gee-toolbox/commit/f81a4b5d3ee4642cdcc0bbe563d327f080a5c65f))
+
+- Add new module 'image_collections' with functions to filterer and add properties to
+  ImageCollections.
+  ([`5057eb0`](https://github.com/silversky54/gee-toolbox/commit/5057eb09cfaa9c5b6b1df7b399b805b1d9986d73))
+
+- Deprecated functions in module 'gee.assets' are being substituted with new versions in 'assets'
+  ([`39167fc`](https://github.com/silversky54/gee-toolbox/commit/39167fcf7161c094b999866c083d0dd4907171a0))
 
 ## v0.2.1 (2025-01-05)
 
@@ -18,3 +34,8 @@ Several improvements to list_assets and prune functions
 
 - Removed dependency of geetools. geetools had bloated in size and had dependency errors.
   ([`e81ddb1`](https://github.com/silversky54/gee-toolbox/commit/e81ddb1796a82cd60de03a4214af83867901879e))
+
+## v0.2.0
+
+Minimum version of geetools is now 1.10.0
+Several improvements to list_assets and prune functions

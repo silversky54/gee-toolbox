@@ -1,6 +1,6 @@
 [project]
 name = "gee-toolbox"
-version = "0.2.1"
+version = "0.3.0"
 description = "Helpful functions and objects for Google Earth Engine processes"
 license = "Apache-2.0"
 authors = [{ name = "Erick G", email = "erick.linares@gmail.com" }]
@@ -98,6 +98,7 @@ indent-style = "space"
 [tool.semantic_release]
 commit_parser = "conventional-monorepo"
 version_toml = ["pyproject.toml:project.version"]
+commit_message = "Bump gee-toolbox to v{version}"
 allow_zero_version = true
 major_on_zero = false
 tag_format = "v{version}"
@@ -142,6 +143,16 @@ ignore_merge_commits = true
 
 [tool.semantic_release.changelog]
 mode = "update"
+exclude_commit_patterns = [
+    '''chore(?:\([^)]*?\))?: .+''',
+    '''ci(?:\([^)]*?\))?: .+''',
+    '''docs(?:\([^)]*?\))?: .+''',
+    '''style(?:\([^)]*?\))?: .+''',
+    '''refactor(?:\([^)]*?\))?: .+''',
+    '''test(?:\([^)]*?\))?: .+''',
+    '''build(?:\([^)]*?\))?: .+''',
+    '''Initial [Cc]ommit.*''',
+]
 
 
 [tool.semantic_release.changelog.default_templates]
