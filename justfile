@@ -53,10 +53,10 @@ bump-lock: bump-stamp
 bump: bump-lock
     uv run semantic-release version --skip-build --no-push
 
-# Build wheel/sdist
+# Build wheel/sdist (clears dist/ so publish only sees this version)
 build: sync
-    uv build
+    uv build --clear
 
 # Build and publish to PyPI
 publish: build
-    uv publish
+    uv publish --username __token__
