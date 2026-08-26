@@ -8,6 +8,7 @@ from ee.ee_exception import EEException
 from tqdm.auto import tqdm
 
 ALLOWED_ASSET_TYPES = ["IMAGE", "TABLE", "FOLDER", "IMAGE_COLLECTION"]
+"""Valid Earth Engine asset type names (deprecated module; prefer gee_toolbox.assets)."""
 
 
 def _request_del_confirmation() -> bool:

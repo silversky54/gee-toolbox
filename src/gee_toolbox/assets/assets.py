@@ -11,8 +11,13 @@ from tqdm.auto import tqdm
 logger = logging.getLogger(__name__)
 
 ASSET_TYPES = ["IMAGE", "TABLE", "FOLDER", "IMAGE_COLLECTION"]
+"""Valid Earth Engine asset type names for list/prune filters."""
+
 CONTAINER_ASSET_TYPES = ["FOLDER", "IMAGE_COLLECTION"]
+"""Asset types that can contain other assets."""
+
 DEFAULT_PAGINATION_SIZE = 1000
+"""Default page size when listing assets via the Earth Engine client."""
 
 
 def _is_project_root(asset: str | Path) -> bool:

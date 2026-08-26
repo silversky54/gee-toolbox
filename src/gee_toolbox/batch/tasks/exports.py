@@ -33,8 +33,10 @@ EXPORT_TARGET_MAP = {
     "storage": "storage",
     "google-storage": "storage",
 }
+"""Map of accepted export-target aliases to normalized destinations."""
 
 EXPORT_TARGETS = list[str](EXPORT_TARGET_MAP.keys())
+"""Accepted export target names (aliases included)."""
 
 # Maps high-level export status -> GEE task states (task_status).
 # status is the export-level grouping; task_status is the GEE task state.
@@ -57,15 +59,26 @@ EXPORT_TASK_STATUS_MAP = {
     "FAILED": ["FAILED", "FAILED_TO_GET_STATUS"],
     "UNKNOWN": ["UNKNOWN"],
 }
+"""Map of high-level export statuses to underlying GEE task states."""
+
 EXPORT_TASK_STATES = list[str](EXPORT_TASK_STATUS_MAP.keys())
+"""High-level export status names used by ExportTask.status."""
+
 GEE_TASK_STATES = [
     status for statuses in EXPORT_TASK_STATUS_MAP.values() for status in statuses
 ]
+"""Flattened list of GEE task state strings recognized by this module."""
+
 GEE_TASK_RUNNING_STATES = EXPORT_TASK_STATUS_MAP["PENDING"]
+"""GEE task states treated as still in progress."""
+
 GEE_TASK_TERMINAL_STATES = (
     EXPORT_TASK_STATUS_MAP["COMPLETED"] + EXPORT_TASK_STATUS_MAP["FAILED"]
 )
+"""GEE task states that mean the export has finished (success or failure)."""
+
 MAX_STATUS_UPDATE_FAILURES = 3
+"""Consecutive status-query failures allowed before marking a task failed."""
 
 
 def _validate_task_status(value: str) -> str:
@@ -88,21 +101,6 @@ class ExportTask:
     state from the last query (e.g. READY, RUNNING, COMPLETED) and status is a
     high-level grouping of those states (e.g. NOT_STARTED, PENDING, COMPLETED,
     FAILED). See EXPORT_TASK_STATUS_MAP.
-
-    Attributes:
-        id (str): Unique identifier for this ExportTask, generated if not provided
-            (e.g. uuid4).
-        type (Literal["image", "table"]): The type of export (image or table).
-        name (str): The name of the exported asset at the target.
-        target (str): Normalized export destination (assets, drive or storage).
-        path (Path): The path to the asset to be exported.
-        storage_bucket (str | None): The bucket name for Google Cloud Storage exports.
-        task (ee.batch.Task | None): The underlying Earth Engine batch task.
-        task_id (str | None): Id of the underlying GEE task, if submitted.
-        task_status (str): GEE task state from the last query.
-        status (str): High-level export status. Superset of task_status.
-        error (str | None): Error message if the task fails.
-
     """
 
     name: str
@@ -560,9 +558,6 @@ class ExportTaskList:
 
     Tasks appended or assigned into the list are deep-copied. The underlying
     ee.batch.Task handle is shared so both copies refer to the same GEE task.
-
-    Attributes:
-        tasks (list[ExportTask]): The list of ExportTask instances.
 
     """
 

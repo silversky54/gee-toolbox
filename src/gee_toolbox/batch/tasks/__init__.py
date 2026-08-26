@@ -1,3 +1,5 @@
+"""Helper functions and classes for Google Earth Engine Batch Tasks Management."""
+
 from .exports import (
     EXPORT_TARGETS,
     EXPORT_TASK_STATES,

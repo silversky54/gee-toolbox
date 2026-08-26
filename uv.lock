@@ -748,15 +748,24 @@ dependencies = [
     { name = "tqdm" },
 ]
 
-[package.dev-dependencies]
-dev = [
+[package.optional-dependencies]
+docs = [
     { name = "furo" },
-    { name = "jupyter" },
-    { name = "python-semantic-release" },
-    { name = "ruff" },
+    { name = "myst-parser" },
     { name = "sphinx" },
     { name = "sphinx-autoapi" },
     { name = "sphinx-design" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "gee-toolbox", extra = ["docs"] },
+    { name = "jupyter" },
+    { name = "python-semantic-release" },
+    { name = "ruff" },
+]
+docs = [
+    { name = "gee-toolbox", extra = ["docs"] },
 ]
 test = [
     { name = "pytest" },
@@ -767,21 +776,25 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "earthengine-api", specifier = ">=0.1.418,<2.0.0" },
+    { name = "furo", marker = "extra == 'docs'", specifier = ">=2025.12.19" },
+    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=5.1.0,<6" },
     { name = "prettytable", specifier = ">=3.10.1,<4.0.0" },
     { name = "pytz", specifier = ">=2026.3.post1" },
+    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=9.0,<10.0" },
+    { name = "sphinx-autoapi", marker = "extra == 'docs'", specifier = ">=3.6,<4" },
+    { name = "sphinx-design", marker = "extra == 'docs'", specifier = ">=0.7.0,<0.8.0" },
     { name = "tqdm", specifier = ">=4.66.5,<5.0.0" },
 ]
+provides-extras = ["docs"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "furo", specifier = ">=2025.12.19" },
+    { name = "gee-toolbox", extras = ["docs"] },
     { name = "jupyter", specifier = ">=1.1.1,<2.0.0" },
     { name = "python-semantic-release", specifier = ">=10.5.3,<11" },
     { name = "ruff", specifier = ">=0.15.15,<1.0.0" },
-    { name = "sphinx", specifier = ">=9.0,<10.0" },
-    { name = "sphinx-autoapi", specifier = ">=3.6,<4" },
-    { name = "sphinx-design", specifier = ">=0.7.0,<0.8.0" },
 ]
+docs = [{ name = "gee-toolbox", extras = ["docs"] }]
 test = [
     { name = "pytest", specifier = ">=8.3.2,<9.0.0" },
     { name = "pytest-cov", specifier = ">=5.0.0,<6.0.0" },
@@ -1508,6 +1521,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mdit-py-plugins"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/fc/f8d0863f8862f25602c0404d75568e89fb6b4109804645e5cdfb1be5cf56/mdit_py_plugins-0.6.1.tar.gz", hash = "sha256:a2bca0f039f39dbd35fb74ae1b5f998608c437463371f0ff7f49a19a17a114d0", size = 56114, upload-time = "2026-05-13T09:03:38.91Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a5/69/6da5581c6a7fede7dc261bf4e67d6adca4196f176b43288b55b3db395b6e/mdit_py_plugins-0.6.1-py3-none-any.whl", hash = "sha256:214c82fb2ac524472ab6a5bcab1de80f73b50443e187f401bfd77efbc7c6481d", size = 66663, upload-time = "2026-05-13T09:03:37.76Z" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1523,6 +1548,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7b/92/328a294a6de83bacb95bed01f04e0eaff4e3616ee359fc821a5dfc539b02/mistune-3.3.4.tar.gz", hash = "sha256:58b5c96d6fcb61190dfe5fae498d2b2065f99cf61e9649418fd54cf1ada86dfe", size = 121426, upload-time = "2026-07-22T05:22:30.89Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/e4/288365afae98953bc01de09f686f40d8ee84578135aa7767d5d4e60b5278/mistune-3.3.4-py3-none-any.whl", hash = "sha256:ee015381e955e370962968befe1d729ab60fafb6a715ac6751763fbce38c8d4a", size = 66862, upload-time = "2026-07-22T05:22:29.419Z" },
+]
+
+[[package]]
+name = "myst-parser"
+version = "5.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docutils" },
+    { name = "jinja2" },
+    { name = "markdown-it-py" },
+    { name = "mdit-py-plugins" },
+    { name = "pyyaml" },
+    { name = "sphinx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/21/dc/603751677fff302f34396e206b610f556a59d7fe58b9a2145f54e96b48e8/myst_parser-5.1.0.tar.gz", hash = "sha256:ab69322dc6719dcc7f296479dbb70181b66df6ed315064f92dbc85c0e1bf2f02", size = 101182, upload-time = "2026-05-13T09:38:19.361Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/dc/f3dfb7488b770f3f67e6545085bf2abea5172e88f57b8ad25ef860ca704c/myst_parser-5.1.0-py3-none-any.whl", hash = "sha256:9c91c52b3cdb4d94a6506e4fab4e2f296c7623a0da0dcbe6de1565c3dad67a8a", size = 85817, upload-time = "2026-05-13T09:38:17.904Z" },
 ]
 
 [[package]]

@@ -1,3 +1,5 @@
+"""Helper functions for managing properties in Google Earth Engine ImageCollections."""
+
 import ee
 from ee.ee_exception import EEException
 
@@ -7,9 +9,10 @@ from gee_toolbox.dates.dates import ee_date_to_datetime
 def get_collection_dates_str(
     ee_collection: ee.imagecollection.ImageCollection,
 ) -> list[str]:
-    """Get the dates of all images in an ImageCollection in string format 'YYYY-MM-DD'
+    """Get the dates of all images in an ImageCollection in string format 'YYYY-MM-DD'.
 
-    Images must have the property 'system:time_start'. Dates are assumed to be in UTC timezone.
+    Images must have the property 'system:time_start'.
+    Dates are assumed to be in UTC timezone.
 
     Args:
         ee_collection (ee.imagecollection.ImageCollection): ImageCollection
@@ -18,7 +21,9 @@ def get_collection_dates_str(
         list[str]: List of dates in format "YYYY-MM-DD"
 
     Raises:
-        ValueError: If can't retrieve the property 'system:time_start' from the ImageCollection
+        ValueError: If can't retrieve the property 'system:time_start' from the
+            ImageCollection
+
     """
     try:
         image_dates_in_ms = ee_collection.aggregate_array("system:time_start").getInfo()

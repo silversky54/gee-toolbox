@@ -21,6 +21,18 @@ test:
         --cov-report=html \
         tests/
 
+# Remove previous Sphinx output (avoids stale HTML/doctrees after renames/deletes)
+docs-clean:
+    rm -rf docs/build
+
+# Build HTML docs into docs/build/html
+docs: docs-clean
+    uv run sphinx-build -b html docs/source docs/build/html
+
+# Build docs and treat warnings as errors
+docs-strict: docs-clean
+    uv run sphinx-build -b html docs/source docs/build/html -W
+
 # Print the next version without changing files
 bump-print:
     uv run semantic-release version --print

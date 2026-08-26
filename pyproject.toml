@@ -27,15 +27,24 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/silversky54/gee-toolbox"
 
-[dependency-groups]
-dev = [
-    "jupyter>=1.1.1,<2.0.0",
-    "python-semantic-release>=10.5.3,<11",
-    "ruff>=0.15.15,<1.0.0",
+[project.optional-dependencies]
+docs = [
     "sphinx>=9.0,<10.0",
     "sphinx-autoapi>=3.6,<4",
     "sphinx-design>=0.7.0,<0.8.0",
     "furo>=2025.12.19",
+    "myst-parser>=5.1.0,<6",
+]
+
+[dependency-groups]
+docs = [
+    "gee-toolbox[docs]",
+]
+dev = [
+    { include-group = "docs" },
+    "jupyter>=1.1.1,<2.0.0",
+    "python-semantic-release>=10.5.3,<11",
+    "ruff>=0.15.15,<1.0.0",
 ]
 test = [
     "pytest>=8.3.2,<9.0.0",

@@ -1,16 +1,9 @@
+"""Helper functions for filtering Google Earth Engine ImageCollections."""
+
 import ee
 
 
 def _ee_set_date_as_property(image: ee.image.Image) -> ee.image.Image:
-    """Sets a date property named 'simpleDate' with the image's date in string format YYYY-MM-dd
-
-    Args:
-        image (ee.image.Image): Image to set the date property
-
-    Returns:
-        ee.Image
-
-    """
     date = ee.ee_date.Date(image.date().format("YYYY-MM-dd"))
     return ee.image.Image(
         image.set("simpleDate", date)
@@ -30,7 +23,7 @@ def _ee_remove_date_property(image):
 def ee_filter_ic_by_dates(
     ee_collection: ee.imagecollection.ImageCollection, dates_list: list[str]
 ) -> ee.imagecollection.ImageCollection:
-    """Filters an ImageCollection by a list of dates
+    """Filter an ImageCollection by a list of dates.
 
     Args:
         ee_collection: ee.ImageCollection to filter
@@ -38,8 +31,8 @@ def ee_filter_ic_by_dates(
 
     Returns:
         ee.ImageCollection
-    """
 
+    """
     # add property with image date in string format "YYYY-MM-DD"
     ee_collection = ee_collection.map(_ee_set_date_as_property)
 
