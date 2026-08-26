@@ -37,9 +37,7 @@ docs = [
 ]
 
 [dependency-groups]
-docs = [
-    "gee-toolbox[docs]",
-]
+docs = ["gee-toolbox[docs]"]
 dev = [
     { include-group = "docs" },
     "jupyter>=1.1.1,<2.0.0",
@@ -157,6 +155,7 @@ default = "Erick <erick.linares@gmail.com>"
 name = "origin"
 url = "https://github.com/silversky54/gee-toolbox.git"
 type = "github"
+ignore_token_for_push = true
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false

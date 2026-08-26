@@ -5,6 +5,7 @@ set shell := ["bash", "-cu"]
 
 package := "gee-toolbox"
 
+[private]
 default:
     @just --list
 
@@ -49,16 +50,13 @@ bump-lock: bump-stamp
     git add uv.lock
 
 # Create the release commit and tag locally (no push)
-[private]
-bump-release: bump-lock
+bump: bump-lock
     uv run semantic-release version --skip-build --no-push
 
-# Build wheel/sdist and publish to PyPI
-[private]
-bump-publish:
-    uv sync
+# Build wheel/sdist
+build: sync
     uv build
-    uv publish
 
-# Full release: bump version, update lockfile, commit, build, publish (no git push)
-bump: bump-release bump-publish
+# Build and publish to PyPI
+publish: build
+    uv publish
