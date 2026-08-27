@@ -171,3 +171,4 @@ notebooks/
 poetry.lock
 **/poetry.lock
 .cursor/
+**/secrets/

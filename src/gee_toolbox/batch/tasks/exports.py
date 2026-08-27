@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import time
 import uuid
 from collections.abc import Iterator
 from enum import Enum
@@ -44,12 +45,13 @@ EXPORT_TARGETS = list[str](EXPORT_TARGET_MAP.keys())
 # GEE Task.State values (ee.batch.Task.State):
 #   UNSUBMITTED, READY, RUNNING, COMPLETED, FAILED,
 #   CANCEL_REQUESTED, CANCELLED
-# Local synthetic states: NO_TASK, EXCLUDED, PLANNED, CREATED, SUBMITTED,
+# Local synthetic states: NO_TASK, EXCLUDED, SUBMITTED,
 #   FAILED_TO_GET_STATUS
+# GEE getTaskStatus may return UNKNOWN when the task id does not exist (404)
 EXPORT_TASK_STATUS_MAP = {
     "NO_TASK": ["NO_TASK"],
     "EXCLUDED": ["EXCLUDED"],
-    "NOT_STARTED": ["PLANNED", "CREATED", "UNSUBMITTED"],
+    "NOT_STARTED": ["UNSUBMITTED"],
     "PENDING": ["SUBMITTED", "READY", "RUNNING", "CANCEL_REQUESTED"],
     "COMPLETED": ["COMPLETED", "CANCELLED"],
     "FAILED": ["FAILED", "FAILED_TO_GET_STATUS"],
@@ -73,29 +75,75 @@ GEE_TASK_TERMINAL_STATES = (
 )
 """GEE task states that mean the export has finished (success or failure)."""
 
-MAX_STATUS_UPDATE_FAILURES = 3
+_MAX_STATUS_UPDATE_FAILURES = 3
 """Consecutive status-query failures allowed before marking a task failed."""
+
+# GEE default max request rate is 100/s (~10ms). Doubled for safety.
+# https://developers.google.com/earth-engine/guides/usage
+_GEE_API_MIN_INTERVAL_SEC = 0.02
+"""Minimum seconds between Earth Engine API calls (start/status/cancel)."""
+
+_last_gee_api_call_at: float = 0.0
+
+# Cloud Operations API states / alternate spellings -> ee.batch.Task.State values.
+# See ee._cloud_api_utils.TASK_TO_OPERATION_STATE (inverted).
+_TASK_STATUS_ALIASES = {
+    "SUCCEEDED": "COMPLETED",
+    "SUCCESS": "COMPLETED",
+    "PENDING": "READY",  # Operation PENDING == Task READY
+    "ACTIVE": "RUNNING",
+    "CANCELLING": "CANCEL_REQUESTED",
+    "CANCELED": "CANCELLED",
+}
+
+
+def _throttle_gee_api() -> None:
+    """Sleep so consecutive GEE API calls respect GEE_API_MIN_INTERVAL_SEC."""
+    global _last_gee_api_call_at
+    if _GEE_API_MIN_INTERVAL_SEC <= 0:
+        _last_gee_api_call_at = time.monotonic()
+        return
+    now = time.monotonic()
+    wait = _GEE_API_MIN_INTERVAL_SEC - (now - _last_gee_api_call_at)
+    if wait > 0:
+        sleep(wait)
+    _last_gee_api_call_at = time.monotonic()
 
 
 def _normalize_task_status(value: Enum | str) -> str:
     """Normalize a GEE task state to an uppercase string.
 
     'ee.batch.Task.State' is a string Enum. 'str(State.UNSUBMITTED)' yields
-    'State.UNSUBMITTED' (Python 3.11+), so callers must use ``.value``
-    rather than ``str(...)``. Plain API strings (e.g. from ``getTaskStatus``)
+    'State.UNSUBMITTED' (Python 3.11+), so callers must use '.value'
+    rather than 'str(...)'. Plain API strings (e.g. from 'getTaskStatus')
     pass through unchanged.
     """
     if isinstance(value, Enum):
         value = value.value
-    return str(value).upper()
+    normalized = str(value).strip().upper()
+    if normalized.startswith("STATE."):
+        normalized = normalized[len("STATE.") :]
+    return _TASK_STATUS_ALIASES.get(normalized, normalized)
 
 
 def _validate_task_status(value: Enum | str) -> str:
+    """Validate a GEE task state is a valid status.
+
+    See EXPORT_TASK_STATUS_MAP for valid statuses.
+
+    Raises:
+        ValueError: If the task status is not valid.
+
+    """
     value = _normalize_task_status(value)
     for statuses in EXPORT_TASK_STATUS_MAP.values():
         if value in statuses:
             return value
     raise ValueError(f"Invalid task status: {value}.")
+
+
+def _is_recognized_task_status(value: str) -> bool:
+    return any(value in statuses for statuses in EXPORT_TASK_STATUS_MAP.values())
 
 
 class ExportTask:
@@ -120,7 +168,8 @@ class ExportTask:
     _task_status: str  # GEE Task Status
     _status: str  # Local ExportTask Status
     _id_set_from_task: bool = False
-    _status_update_failures: int
+    _status_query_failures: int
+    _inconclusive_failures: int
 
     def __init__(
         self,
@@ -151,7 +200,8 @@ class ExportTask:
             task: The underlying Earth Engine batch task, if already created.
             task_id: The id of the GEE task. Must match task.id when both are set.
             task_status: A status for the GEE task. If omitted, taken from
-                task.state, or NO_TASK when there is no task.
+                task.state, UNKNOWN when only task_id is set (no task), or
+                NO_TASK when there is no task and no task_id.
             error: The error message if the export task failed.
             id: Unique identifier for this ExportTask. Falls back to task_id
                 or a generated uuid4.
@@ -171,7 +221,8 @@ class ExportTask:
         self._target = EXPORT_TARGET_MAP[target]  # TODO make inmutable after init
         self.path = Path(path)  # TODO make inmutable after init
         self.storage_bucket = storage_bucket  # TODO make inmutable after init
-        self._status_update_failures = 0
+        self._status_query_failures = 0
+        self._inconclusive_failures = 0
         self.task = task  # Mutable but will reset task id and status
 
         # Arbitrary task id and status can only be set by user during init
@@ -199,19 +250,19 @@ class ExportTask:
 
         ### SET TASK STATUS - ONE TIME ONLY ###
         if task_status is None:
-            if self.task is None:
-                self._task_status = "NO_TASK"
+            if self.task is None and self.task_id is None:
+                self._update_status("NO_TASK")
+            elif self.task is None and self.task_id is not None:
+                self._update_status("UNKNOWN")
             elif status_from_task is not None:
-                self._task_status = _normalize_task_status(status_from_task)
+                self._update_status(_normalize_task_status(status_from_task))
             else:
                 # Shouldn't happen, task should have at least UNSUBMITTED
                 # Don't attempt to query status at init
                 raise ValueError("Could not get status from task")
         else:
-            self._task_status = _validate_task_status(task_status)
+            self._update_status(_validate_task_status(task_status))
 
-        # Keep export-level status in sync with the resolved task_status
-        self._update_status(self._task_status)
         self.error = error
 
     @property
@@ -264,9 +315,45 @@ class ExportTask:
             if value in statuses:
                 self._task_status = value
                 self._status = key
-                break
+                return
         else:
             raise ValueError(f"Unknown export status: {value}")
+
+    def _record_status_query_failure(
+        self, error_context: str, exc: BaseException
+    ) -> None:
+        self._status_query_failures += 1
+        error_msg = f"{error_context}: {exc}"
+        logger.error(error_msg)
+        if self._status_query_failures >= _MAX_STATUS_UPDATE_FAILURES:
+            self._update_status("FAILED_TO_GET_STATUS")
+            self.error = error_msg
+        raise RuntimeError(error_msg) from exc
+
+    def _apply_queried_status(self, status: dict) -> str:
+        """Record status from task.status() or getTaskStatus dict."""
+        state = _normalize_task_status(status["state"])
+
+        if state == "UNKNOWN" or not _is_recognized_task_status(state):
+            self._update_status("UNKNOWN")
+            if state == "UNKNOWN":
+                self.error = status.get("error_message")
+            else:
+                self.error = f"Unrecognized GEE task state: {state}"
+            self._inconclusive_failures += 1
+            return self.task_status
+
+        self._update_status(state)
+        # TODO: Parse error message from status
+        self.error = status.get("error_message")
+        self._inconclusive_failures = 0
+        return self.task_status
+
+    def _inconclusive_polls_exhausted(self) -> bool:
+        return self._inconclusive_failures >= _MAX_STATUS_UPDATE_FAILURES
+
+    def _query_failures_exhausted(self) -> bool:
+        return self._status_query_failures >= _MAX_STATUS_UPDATE_FAILURES
 
     @property
     def status(self) -> str:
@@ -280,8 +367,6 @@ class ExportTask:
         logs a warning and returns the current task_status.
 
         After a successful ``task.start()``, status is set to SUBMITTED.
-        Earth Engine does not update ``task.state`` on start (it only assigns
-        ``task.id``), so we cannot read READY/RUNNING from the handle yet.
 
         Returns:
             str: The current GEE task_status after attempting to start.
@@ -295,9 +380,11 @@ class ExportTask:
 
         try:
             if self.status == "NOT_STARTED":
+                _throttle_gee_api()
                 self.task.start()
                 self._task_id = self.task.id
                 # EE leaves task.state as UNSUBMITTED; mark locally as submitted.
+                # operation_name (task.name) is set by EE when start() assigns it.
                 self._update_status("SUBMITTED")
         except EEException as e:
             self._update_status("FAILED")
@@ -314,7 +401,9 @@ class ExportTask:
         Queries status if task or task_id is set. Tries with task.status() first, then
         falls back to task_id via ee.data.getTaskStatus.
         Repeated failures are counted; after MAX_STATUS_UPDATE_FAILURES the task_status
-        is set to FAILED_TO_GET_STATUS.
+        is set to FAILED_TO_GET_STATUS. If GEE returns status 'UNKNOWN' or unrecognized
+        state more than MAX_STATUS_UPDATE_FAILURES, query_status stops trying to query
+        GEE.
 
         Returns:
             str: The current GEE task_status.
@@ -332,74 +421,65 @@ class ExportTask:
             )
             return self.task_status
 
-        # if multiple status checks fail, change status and stop checking
-        if (
-            self._status_update_failures >= MAX_STATUS_UPDATE_FAILURES
-            and self.task_status != "FAILED_TO_GET_STATUS"
-        ):
-            logger.error(
-                f"Failed to get status for Task '{self.name}' to '{self.target}'"
-            )
-            self._update_status("FAILED_TO_GET_STATUS")
+        # If task_status is already settled, don't check again.
+        if self.task_status in GEE_TASK_TERMINAL_STATES:
+            return self.task_status
+        if self.task_status == "UNKNOWN" and self._inconclusive_polls_exhausted():
+            return self.task_status
+        if self._query_failures_exhausted():
+            if self.task_status != "FAILED_TO_GET_STATUS":
+                self._update_status("FAILED_TO_GET_STATUS")
             return self.task_status
 
-        if (
-            self.task_status
-            in EXPORT_TASK_STATUS_MAP["PENDING"] + EXPORT_TASK_STATUS_MAP["NOT_STARTED"]
-        ):
-            # Try first with task.status() then with task_id
+        pollable = (
+            EXPORT_TASK_STATUS_MAP["PENDING"]
+            + EXPORT_TASK_STATUS_MAP["NOT_STARTED"]
+            + ["UNKNOWN"]
+        )
+
+        if self.task_status in pollable:
             error_context = (
                 f"Failed to update status for Task {self.name} ({self.id}) "
                 f"to {self.target}"
             )
+            # Try first with task.status()
             if self.task is not None:
                 try:
+                    _throttle_gee_api()
                     status = self.task.status()
-                    self._update_status(status["state"])
-                    # TODO: Parse error message from status
-                    self.error = status.get("error_message", None)
-                    self._status_update_failures = 0
-                    return self.task_status
+                    state = _normalize_task_status(status["state"])
+                    # task.status() returns UNSUBMITTED when operation_name is
+                    # missing; do not overwrite a submitted task_id that way.
+                    if state == "UNSUBMITTED" and self.task_id is not None:
+                        pass
+                    else:
+                        return self._apply_queried_status(status)
                 except EEException as e:
                     if self.task_id is not None:
                         pass
                     elif self.status == "NOT_STARTED":
                         return self.task_status
                     else:
-                        self._status_update_failures += 1
-                        error_msg = f"{error_context}: {e}"
-                        logger.error(error_msg)
-                        # TODO: See if there's a better error type to raise
-                        raise RuntimeError(error_msg) from e
+                        self._record_status_query_failure(error_context, e)
                 except Exception as e:
-                    self._status_update_failures += 1
-                    error_msg = f"{error_context}: {e}"
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg) from e
+                    self._record_status_query_failure(error_context, e)
 
             if self.task_id is not None:
                 try:
+                    _throttle_gee_api()
                     status = ee.data.getTaskStatus(self.task_id)
                     if isinstance(status, list):
                         status = status[0]
                     if status is not None:
-                        self._update_status(status["state"])
-                        self.error = status.get("error_message", None)
-                        self._status_update_failures = 0
+                        return self._apply_queried_status(status)
                     return self.task_status
                 except EEException as e:
                     if self.status == "NOT_STARTED":
                         return self.task_status
                     else:
-                        self._status_update_failures += 1
-                        error_msg = f"{error_context}: {e}"
-                        logger.error(error_msg)
-                        raise RuntimeError(error_msg) from e
+                        self._record_status_query_failure(error_context, e)
                 except Exception as e:
-                    self._status_update_failures += 1
-                    error_msg = f"{error_context}: {e}"
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg) from e
+                    self._record_status_query_failure(error_context, e)
         return self.task_status
 
     def cancel_task(self) -> str:
@@ -428,6 +508,7 @@ class ExportTask:
             )
             if self.task is not None:
                 try:
+                    _throttle_gee_api()
                     self.task.cancel()
                     self._update_status("CANCEL_REQUESTED")
                     return self.task_status
@@ -448,6 +529,7 @@ class ExportTask:
 
             if self.task_id is not None:
                 try:
+                    _throttle_gee_api()
                     ee.data.cancelTask(self.task_id)
                     self._update_status("CANCEL_REQUESTED")
                     return self.task_status
@@ -533,7 +615,8 @@ class ExportTask:
         clone._task_status = self._task_status
         clone._status = self._status
         clone.error = copy.deepcopy(self.error, memo)
-        clone._status_update_failures = self._status_update_failures
+        clone._status_query_failures = self._status_query_failures
+        clone._inconclusive_failures = self._inconclusive_failures
         return clone
 
     def to_dict(self) -> dict:
@@ -850,18 +933,18 @@ class ExportTaskList:
         started = 0
         skipped = 0
         for task in self._tasks:
-            # Skip tasks with "bad" status or mock tasks
             if task.status == "NOT_STARTED" and task.task is not None:
                 task.start_task()
                 started += 1
             else:
                 skipped += 1
                 logger.debug(
-                    "Skipping task: %s (ID: %s) to %s with status %s",
+                    "Skipping task: %s (ID: %s) to %s with status %s (task_status: %s)",
                     task.name,
                     task.task_id,
                     task.target,
                     task.status,
+                    task.task_status,
                 )
 
         logger.info("Started Export Tasks: %i. Skipped %i", started, skipped)
@@ -914,8 +997,8 @@ class ExportTaskList:
     def track_exports(self, sleep_time: int = 60) -> dict[str, int]:
         """Track export tasks, querying status at specified time intervals.
 
-        Polls until every task is no longer in a running GEE state, or has
-        failed to get status too many times.
+        Polls until every task is no longer in a running GEE state, has settled on
+        UNKNOWN after repeated inconclusive polls, or failed to query GEE.
 
         Args:
             sleep_time: Time in seconds to sleep between checking task status.
@@ -933,15 +1016,17 @@ class ExportTaskList:
             for task in self._tasks:
                 # Skip previously "finished" tasks to avoid logging multiple times
                 if task.id not in finished_tasks:
-                    # Catch any tasks that don't need tracking on first run
-                    if task.task_status not in GEE_TASK_RUNNING_STATES:
+                    if task.task_status not in GEE_TASK_RUNNING_STATES and not (
+                        task.task_status == "UNKNOWN"
+                        and not task._inconclusive_polls_exhausted()
+                    ):
                         finished_tasks.append(task.id)
                         continue
 
                     try:
                         status = task.query_status()
                     except RuntimeError as e:
-                        if task._status_update_failures >= MAX_STATUS_UPDATE_FAILURES:
+                        if task._query_failures_exhausted():
                             logger.warning(
                                 "Failed to query status of %s (ID: %s) to %s: %s",
                                 task.name,
@@ -957,29 +1042,20 @@ class ExportTaskList:
                     if status in GEE_TASK_RUNNING_STATES:
                         continue_tracking = True
                         continue
+                    if status == "UNKNOWN" and not task._inconclusive_polls_exhausted():
+                        continue_tracking = True
+                        continue
 
-                    elif status in GEE_TASK_TERMINAL_STATES:
-                        logger.debug(
-                            "Export task %s (ID: %s) to %s finished with status: %s "
-                            "(Task Status: %s)",
-                            task.name,
-                            task.id,
-                            task.target,
-                            status,
-                            task.task_status,
-                        )
-                        finished_tasks.append(task.id)
-                    else:
-                        logger.warning(
-                            "Export task %s (ID: %s) to %s finished with unknown status"
-                            ": %s (Task Status: %s)",
-                            task.name,
-                            task.id,
-                            task.target,
-                            status,
-                            task.task_status,
-                        )
-                        finished_tasks.append(task.id)
+                    logger.debug(
+                        "Export task %s (ID: %s) to %s finished with status: %s "
+                        "(Task Status: %s)",
+                        task.name,
+                        task.id,
+                        task.target,
+                        task.status,
+                        status,
+                    )
+                    finished_tasks.append(task.id)
 
             if continue_tracking:
                 sleep(sleep_time)

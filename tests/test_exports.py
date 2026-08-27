@@ -24,6 +24,12 @@ from gee_toolbox.batch.tasks.exports import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _disable_gee_api_throttle(monkeypatch):
+    """Disable API spacing between mocked EE calls in unit tests."""
+    monkeypatch.setattr(exports, "_GEE_API_MIN_INTERVAL_SEC", 0)
+
+
 def _make_ee_task(mocker, *, task_id=None, state="UNSUBMITTED"):
     """Build a lightweight mock of ee.batch.Task."""
     task = mocker.MagicMock()
@@ -69,9 +75,42 @@ class TestValidateTaskStatus:
         # Regression: str(State.X).upper() is "STATE.X", which must not be used
         assert str(Task.State.UNSUBMITTED).upper() == "STATE.UNSUBMITTED"
 
+    def test_strips_state_enum_string_form(self):
+        assert exports._normalize_task_status("STATE.UNSUBMITTED") == "UNSUBMITTED"
+        assert exports._normalize_task_status("State.READY") == "READY"
+
+    def test_maps_operation_state_aliases(self):
+        assert exports._normalize_task_status("PENDING") == "READY"
+        assert exports._normalize_task_status("SUCCEEDED") == "COMPLETED"
+        assert exports._normalize_task_status("CANCELLING") == "CANCEL_REQUESTED"
+        assert exports._normalize_task_status("CANCELED") == "CANCELLED"
+        assert exports._normalize_task_status("SUCCESS") == "COMPLETED"
+        assert exports._normalize_task_status("ACTIVE") == "RUNNING"
+
     def test_rejects_unknown_status(self):
         with pytest.raises(ValueError, match="Invalid task status"):
             exports._validate_task_status("not_a_real_status")
+
+
+class TestGeeApiThrottle:
+    def test_throttle_sleeps_when_interval_positive(self, mocker, monkeypatch):
+        monkeypatch.setattr(exports, "_GEE_API_MIN_INTERVAL_SEC", 0.02)
+        monkeypatch.setattr(exports, "_last_gee_api_call_at", 100.0)
+        sleep = mocker.patch("gee_toolbox.batch.tasks.exports.sleep")
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.time.monotonic",
+            side_effect=[100.005, 100.025],
+        )
+        exports._throttle_gee_api()
+        sleep.assert_called_once()
+        assert sleep.call_args[0][0] == pytest.approx(0.015)
+        assert exports._last_gee_api_call_at == 100.025
+
+    def test_throttle_skips_sleep_when_interval_zero(self, mocker, monkeypatch):
+        monkeypatch.setattr(exports, "_GEE_API_MIN_INTERVAL_SEC", 0)
+        sleep = mocker.patch("gee_toolbox.batch.tasks.exports.sleep")
+        exports._throttle_gee_api()
+        sleep.assert_not_called()
 
 
 class TestExportTargetMap:
@@ -130,6 +169,13 @@ class TestExportTaskInit:
         assert task.task_status == "RUNNING"
         assert task.status == "PENDING"
 
+    def test_defaults_to_unknown_when_task_id_without_task(self):
+        task = _make_export_task(task_id="orphan-id")
+        assert task.task is None
+        assert task.task_id == "orphan-id"
+        assert task.task_status == "UNKNOWN"
+        assert task.status == "UNKNOWN"
+
     def test_accepts_ee_task_state_enum_on_init(self, mocker):
         from ee.batch import Task
 
@@ -150,7 +196,7 @@ class TestExportTaskInit:
             _make_export_task(task=SimpleNamespace(id=None))
 
     def test_id_falls_back_to_task_id_then_uuid(self, mocker):
-        task = _make_export_task(task_id="from-task", task_status="CREATED")
+        task = _make_export_task(task_id="from-task", task_status="NO_TASK")
         assert task.id == "from-task"
 
         mocker.patch(
@@ -183,9 +229,7 @@ class TestExportTaskSetter:
         from ee.batch import Task
 
         task = _make_export_task()
-        ee_task = _make_ee_task(
-            mocker, task_id="enum-id", state=Task.State.CANCELLED
-        )
+        ee_task = _make_ee_task(mocker, task_id="enum-id", state=Task.State.CANCELLED)
         task.task = ee_task
         assert task.task_status == "CANCELLED"
         assert task.status == "COMPLETED"
@@ -195,18 +239,19 @@ class TestExportTaskSetter:
         with pytest.raises(ValueError, match="Unknown export status"):
             task._update_status("not-real")
 
-    def test_update_status_rejects_str_enum_repr(self):
-        # Guard against the pre-fix bug path (str(State).upper() == "STATE.X")
+    def test_update_status_accepts_str_enum_repr(self):
+        # str(State).upper() == "STATE.X" must normalize, not raise
         task = _make_export_task()
-        with pytest.raises(ValueError, match="Unknown export status: STATE.UNSUBMITTED"):
-            task._update_status("STATE.UNSUBMITTED")
+        task._update_status("STATE.UNSUBMITTED")
+        assert task.task_status == "UNSUBMITTED"
+        assert task.status == "NOT_STARTED"
 
 
 class TestExportTaskStartTask:
     def test_warns_and_returns_when_no_ee_task(self, mocker):
         warn = mocker.patch("gee_toolbox.batch.tasks.exports.logger.warning")
-        task = _make_export_task(task_status="CREATED")
-        assert task.start_task() == "CREATED"
+        task = _make_export_task(task_status="NO_TASK")
+        assert task.start_task() == "NO_TASK"
         warn.assert_called_once()
 
     def test_starts_when_not_started(self, mocker):
@@ -256,9 +301,20 @@ class TestExportTaskStartTask:
 class TestExportTaskQueryStatus:
     def test_returns_current_when_no_task_or_id(self, mocker):
         warn = mocker.patch("gee_toolbox.batch.tasks.exports.logger.warning")
-        task = _make_export_task(task_status="CREATED")
-        assert task.query_status() == "CREATED"
+        task = _make_export_task(task_status="NO_TASK")
+        assert task.query_status() == "NO_TASK"
         warn.assert_called_once()
+
+    def test_queries_when_init_unknown_with_task_id_only(self, mocker):
+        mock_get = mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "RUNNING"}],
+        )
+        task = _make_export_task(task_id="orphan-id")
+        assert task.task_status == "UNKNOWN"
+        assert task.query_status() == "RUNNING"
+        assert task.status == "PENDING"
+        mock_get.assert_called_once_with("orphan-id")
 
     def test_skips_query_for_terminal_status(self, mocker):
         ee_task = _make_ee_task(mocker, task_id="t1", state="COMPLETED")
@@ -297,6 +353,79 @@ class TestExportTaskQueryStatus:
         assert task.query_status() == "RUNNING"
         mock_get.assert_called_once_with("t1")
 
+    def test_falls_back_when_status_returns_unsubmitted_after_start(self, mocker):
+        """Regression: Task.status() returns UNSUBMITTED if operation_name is missing.
+
+        After start_task we have task_id + SUBMITTED; querying must not clobber
+        that back to NOT_STARTED / UNSUBMITTED.
+        """
+        from ee.batch import Task
+
+        ee_task = _make_ee_task(mocker, task_id="started-1", state="UNSUBMITTED")
+        ee_task.status.return_value = {"state": Task.State.UNSUBMITTED}
+        mock_get = mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "READY"}],
+        )
+        task = _make_export_task(
+            task=ee_task, task_id="started-1", task_status="SUBMITTED"
+        )
+        assert task.status == "PENDING"
+        assert task.query_status() == "READY"
+        assert task.status == "PENDING"
+        mock_get.assert_called_once_with("started-1")
+
+    def test_transient_unknown_then_updates(self, mocker):
+        mock_get = mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            side_effect=[
+                [{"state": "UNKNOWN"}],
+                [{"state": "RUNNING"}],
+            ],
+        )
+        task = _make_export_task(task_id="started-1", task_status="SUBMITTED")
+        assert task.query_status() == "UNKNOWN"
+        assert task.status == "UNKNOWN"
+        assert task._inconclusive_failures == 1
+        assert task.query_status() == "RUNNING"
+        assert task.status == "PENDING"
+        assert task._inconclusive_failures == 0
+        assert mock_get.call_count == 2
+
+    def test_repeated_unknown_stops_querying_after_max(self, mocker):
+        mock_get = mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "UNKNOWN"}],
+        )
+        task = _make_export_task(task_id="missing-1", task_status="SUBMITTED")
+        for _ in range(exports._MAX_STATUS_UPDATE_FAILURES):
+            assert task.query_status() == "UNKNOWN"
+            assert task.status == "UNKNOWN"
+        assert task._inconclusive_failures == exports._MAX_STATUS_UPDATE_FAILURES
+        assert task.query_status() == "UNKNOWN"
+        mock_get.assert_called()
+        call_count = mock_get.call_count
+        assert task.query_status() == "UNKNOWN"
+        assert mock_get.call_count == call_count
+
+    def test_normalizes_operation_pending_alias_from_get_task_status(self, mocker):
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "PENDING"}],
+        )
+        task = _make_export_task(task_id="started-1", task_status="SUBMITTED")
+        assert task.query_status() == "READY"
+        assert task.status == "PENDING"
+
+    def test_normalizes_succeeded_alias_from_get_task_status(self, mocker):
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "SUCCEEDED"}],
+        )
+        task = _make_export_task(task_id="started-1", task_status="RUNNING")
+        assert task.query_status() == "COMPLETED"
+        assert task.status == "COMPLETED"
+
     def test_queries_by_task_id_only(self, mocker):
         mocker.patch(
             "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
@@ -322,20 +451,39 @@ class TestExportTaskQueryStatus:
         task._task_id = None
         with pytest.raises(RuntimeError, match="Failed to update status"):
             task.query_status()
-        assert task._status_update_failures == 1
+        assert task._status_query_failures == 1
 
-    def test_marks_failed_to_get_status_after_max_failures(self, mocker):
+    def test_marks_failed_to_get_status_after_max_query_failures(self, mocker):
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            side_effect=EEException("network down"),
+        )
         task = _make_export_task(task_id="t1", task_status="READY")
-        task._status_update_failures = exports.MAX_STATUS_UPDATE_FAILURES
+        for _ in range(exports._MAX_STATUS_UPDATE_FAILURES - 1):
+            with pytest.raises(RuntimeError):
+                task.query_status()
+        with pytest.raises(RuntimeError):
+            task.query_status()
         assert task.query_status() == "FAILED_TO_GET_STATUS"
         assert task.status == "FAILED"
+
+    def test_unrecognized_server_state_settles_on_unknown(self, mocker):
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "WEIRD_STATE"}],
+        )
+        task = _make_export_task(task_id="t1", task_status="SUBMITTED")
+        for _ in range(exports._MAX_STATUS_UPDATE_FAILURES):
+            assert task.query_status() == "UNKNOWN"
+        assert task.status == "UNKNOWN"
+        assert "Unrecognized GEE task state" in task.error
 
 
 class TestExportTaskCancelTask:
     def test_returns_current_when_no_task_or_id(self, mocker):
         warn = mocker.patch("gee_toolbox.batch.tasks.exports.logger.warning")
-        task = _make_export_task(task_status="CREATED")
-        assert task.cancel_task() == "CREATED"
+        task = _make_export_task(task_status="NO_TASK")
+        assert task.cancel_task() == "NO_TASK"
         warn.assert_called_once()
 
     def test_skips_when_already_completed(self, mocker):
@@ -427,12 +575,12 @@ class TestExportTaskToDictAndSave:
         assert "task" not in data
 
     def test_save_writes_json(self, tmp_path):
-        task = _make_export_task(id="local", task_status="CREATED")
+        task = _make_export_task(id="local", task_status="NO_TASK")
         path = tmp_path / "task.json"
         task.save(path)
         loaded = json.loads(path.read_text(encoding="utf-8"))
         assert loaded["id"] == "local"
-        assert loaded["task_status"] == "CREATED"
+        assert loaded["task_status"] == "NO_TASK"
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +689,7 @@ class TestExportTaskListAddTask:
             target="gcs",
             path="bucket/path",
             storage_bucket="my-bucket",
-            task_status="CREATED",
+            task_status="NO_TASK",
             id="new-1",
         )
         assert len(task_list) == 1
@@ -607,7 +755,7 @@ class TestExportTaskListStartExports:
         ee_ready.start.side_effect = _start
         startable = _make_export_task(id="1", task=ee_ready, task_status="UNSUBMITTED")
         already = _make_export_task(id="2", name="b", task_status="READY", task_id="x")
-        no_ee = _make_export_task(id="3", name="c", task_status="CREATED")
+        no_ee = _make_export_task(id="3", name="c", task_status="NO_TASK")
 
         task_list = ExportTaskList([startable, already, no_ee])
         summary = task_list.start_exports()
@@ -669,12 +817,26 @@ class TestExportTaskListTrackExports:
         task = _make_export_task(task=ee_task, task_id=None, task_status="READY")
         task._task_id = None
         # Pre-seed so next failure hits the max and track finishes
-        task._status_update_failures = exports.MAX_STATUS_UPDATE_FAILURES - 1
+        task._status_query_failures = exports._MAX_STATUS_UPDATE_FAILURES - 1
         task_list = ExportTaskList([task])
         summary = task_list.track_exports(sleep_time=0)
-        failures = task_list[0]._status_update_failures
-        assert failures >= exports.MAX_STATUS_UPDATE_FAILURES
+        failures = task_list[0]._status_query_failures
+        assert failures >= exports._MAX_STATUS_UPDATE_FAILURES
         assert isinstance(summary, dict)
+
+    def test_stops_after_repeated_unknown(self, mocker):
+        mocker.patch("gee_toolbox.batch.tasks.exports.sleep")
+        mocker.patch(
+            "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
+            return_value=[{"state": "UNKNOWN"}],
+        )
+        task = _make_export_task(id="t1", task_id="t1", task_status="SUBMITTED")
+        task_list = ExportTaskList([task])
+        tracked = task_list[0]
+        summary = task_list.track_exports(sleep_time=0)
+        assert summary == {"UNKNOWN": 1}
+        assert tracked.task_status == "UNKNOWN"
+        assert tracked._inconclusive_failures >= exports._MAX_STATUS_UPDATE_FAILURES
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +866,7 @@ class TestSerializationHelpers:
         assert restored.task is None
 
     def test_dict_to_export_task_drops_non_task_payload(self):
-        data = export_task_to_dict(_make_export_task(id="1", task_status="CREATED"))
+        data = export_task_to_dict(_make_export_task(id="1", task_status="NO_TASK"))
         data["task"] = {"not": "an ee task"}
         restored = dict_to_export_task(data)
         assert restored.task is None
@@ -712,7 +874,7 @@ class TestSerializationHelpers:
     def test_save_and_load_export_task_list(self, tmp_path):
         task_list = ExportTaskList(
             [
-                _make_export_task(id="1", task_status="CREATED"),
+                _make_export_task(id="1", task_status="NO_TASK"),
                 _make_export_task(
                     id="2", name="b", target="drive", task_status="READY"
                 ),
