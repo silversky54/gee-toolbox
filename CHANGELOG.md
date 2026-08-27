@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.4.1 (2026-08-26)
+
+### Bug Fixes
+
+- Fix various ExportTask and ExportTaskList status mismatch that prevented Tasks from updating their
+  status
+  ([`e87ab3b`](https://github.com/silversky54/gee-toolbox/commit/e87ab3b7218f9b08ca2b1fc8fd97b3f3ed6b5fa2))
+
+
 ## v0.4.0 (2026-08-26)
 
 ### Bug Fixes
