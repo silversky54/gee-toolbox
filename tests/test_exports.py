@@ -66,6 +66,7 @@ class TestValidateTaskStatus:
     def test_accepts_known_status(self):
         assert exports._validate_task_status("ready") == "READY"
         assert exports._validate_task_status("COMPLETED") == "COMPLETED"
+        assert exports._validate_task_status("SUCCEEDED") == "SUCCEEDED"
 
     def test_accepts_ee_task_state_enum(self):
         from ee.batch import Task
@@ -81,11 +82,14 @@ class TestValidateTaskStatus:
 
     def test_maps_operation_state_aliases(self):
         assert exports._normalize_task_status("PENDING") == "READY"
-        assert exports._normalize_task_status("SUCCEEDED") == "COMPLETED"
         assert exports._normalize_task_status("CANCELLING") == "CANCEL_REQUESTED"
         assert exports._normalize_task_status("CANCELED") == "CANCELLED"
         assert exports._normalize_task_status("SUCCESS") == "COMPLETED"
         assert exports._normalize_task_status("ACTIVE") == "RUNNING"
+
+    def test_succeeded_is_first_class_not_aliased(self):
+        assert exports._normalize_task_status("SUCCEEDED") == "SUCCEEDED"
+        assert "SUCCEEDED" in exports.GEE_TASK_TERMINAL_STATES
 
     def test_rejects_unknown_status(self):
         with pytest.raises(ValueError, match="Invalid task status"):
@@ -246,6 +250,12 @@ class TestExportTaskSetter:
         assert task.task_status == "UNSUBMITTED"
         assert task.status == "NOT_STARTED"
 
+    def test_update_status_succeeded_maps_to_completed(self):
+        task = _make_export_task()
+        task._update_status("SUCCEEDED")
+        assert task.task_status == "SUCCEEDED"
+        assert task.status == "COMPLETED"
+
 
 class TestExportTaskStartTask:
     def test_warns_and_returns_when_no_ee_task(self, mocker):
@@ -320,6 +330,14 @@ class TestExportTaskQueryStatus:
         ee_task = _make_ee_task(mocker, task_id="t1", state="COMPLETED")
         task = _make_export_task(task=ee_task, task_id="t1", task_status="COMPLETED")
         assert task.query_status() == "COMPLETED"
+        ee_task.status.assert_not_called()
+
+    def test_skips_query_for_succeeded_terminal_status(self, mocker):
+        ee_task = _make_ee_task(mocker, task_id="t1", state="SUCCEEDED")
+        task = _make_export_task(task=ee_task, task_id="t1", task_status="SUCCEEDED")
+        assert task.task_status == "SUCCEEDED"
+        assert task.status == "COMPLETED"
+        assert task.query_status() == "SUCCEEDED"
         ee_task.status.assert_not_called()
 
     def test_updates_from_task_status(self, mocker):
@@ -417,13 +435,14 @@ class TestExportTaskQueryStatus:
         assert task.query_status() == "READY"
         assert task.status == "PENDING"
 
-    def test_normalizes_succeeded_alias_from_get_task_status(self, mocker):
+    def test_keeps_succeeded_as_first_class_from_get_task_status(self, mocker):
         mocker.patch(
             "gee_toolbox.batch.tasks.exports.ee.data.getTaskStatus",
             return_value=[{"state": "SUCCEEDED"}],
         )
         task = _make_export_task(task_id="started-1", task_status="RUNNING")
-        assert task.query_status() == "COMPLETED"
+        assert task.query_status() == "SUCCEEDED"
+        assert task.task_status == "SUCCEEDED"
         assert task.status == "COMPLETED"
 
     def test_queries_by_task_id_only(self, mocker):
@@ -806,6 +825,15 @@ class TestExportTaskListTrackExports:
     def test_skips_already_finished_on_first_pass(self, mocker):
         mock_sleep = mocker.patch("gee_toolbox.batch.tasks.exports.sleep")
         done = _make_export_task(id="1", task_status="COMPLETED")
+        task_list = ExportTaskList([done])
+        assert task_list.track_exports(sleep_time=5) == {"COMPLETED": 1}
+        mock_sleep.assert_not_called()
+
+    def test_skips_succeeded_as_finished_on_first_pass(self, mocker):
+        mock_sleep = mocker.patch("gee_toolbox.batch.tasks.exports.sleep")
+        done = _make_export_task(id="1", task_status="SUCCEEDED")
+        assert done.task_status == "SUCCEEDED"
+        assert done.status == "COMPLETED"
         task_list = ExportTaskList([done])
         assert task_list.track_exports(sleep_time=5) == {"COMPLETED": 1}
         mock_sleep.assert_not_called()

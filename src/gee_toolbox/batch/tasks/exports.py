@@ -45,6 +45,8 @@ EXPORT_TARGETS = list[str](EXPORT_TARGET_MAP.keys())
 # GEE Task.State values (ee.batch.Task.State):
 #   UNSUBMITTED, READY, RUNNING, COMPLETED, FAILED,
 #   CANCEL_REQUESTED, CANCELLED
+# GEE / Operations API may also return SUCCEEDED (kept as first-class
+# task_status under COMPLETED, not aliased away).
 # Local synthetic states: NO_TASK, EXCLUDED, SUBMITTED,
 #   FAILED_TO_GET_STATUS
 # GEE getTaskStatus may return UNKNOWN when the task id does not exist (404)
@@ -53,7 +55,7 @@ EXPORT_TASK_STATUS_MAP = {
     "EXCLUDED": ["EXCLUDED"],
     "NOT_STARTED": ["UNSUBMITTED"],
     "PENDING": ["SUBMITTED", "READY", "RUNNING", "CANCEL_REQUESTED"],
-    "COMPLETED": ["COMPLETED", "CANCELLED"],
+    "COMPLETED": ["COMPLETED", "CANCELLED", "SUCCEEDED"],
     "FAILED": ["FAILED", "FAILED_TO_GET_STATUS"],
     "UNKNOWN": ["UNKNOWN"],
 }
@@ -88,7 +90,6 @@ _last_gee_api_call_at: float = 0.0
 # Cloud Operations API states / alternate spellings -> ee.batch.Task.State values.
 # See ee._cloud_api_utils.TASK_TO_OPERATION_STATE (inverted).
 _TASK_STATUS_ALIASES = {
-    "SUCCEEDED": "COMPLETED",
     "SUCCESS": "COMPLETED",
     "PENDING": "READY",  # Operation PENDING == Task READY
     "ACTIVE": "RUNNING",
