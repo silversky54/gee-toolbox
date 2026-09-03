@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-09-03)
+
+### Features
+
+- Promote GEE Task Status 'SUCCEEDED' from alias to valid first class state type. in ExportTask
+  ([`dc9a7b4`](https://github.com/silversky54/gee-toolbox/commit/dc9a7b47b8f5ae4a1e1bab3933407c2387ee0807))
+
+
 ## v0.4.1 (2026-08-26)
 
 ### Bug Fixes
